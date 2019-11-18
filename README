@@ -1,1 +1,6 @@
-d="StrategyPrototypes.d"; while sleep 1; do if [ "$d" -nt "x64" ]; then echo "RUNNING..."; /c/D/dmd-2.089.0/windows/bin/rdmd.exe "$d"; touch "x64"; date; fi; done
+d="StrategyPrototypes"; while sleep 1; do for f in *.d; do if [ "$f" -nt "$d" ]; then echo -en "COMPILING..."; /c/D/dmd-2.089.0/windows/bin/dmd.exe -boundscheck=on -m64 -lowmem -of="$d" *.d && echo " --> `ls -l "$d" | sed 's|[^ ]* [^ ]* [^ ]* [^ ]* [^ ]* ||'`" && ./"$d"; touch "$d"; date; fi; done; done
+# d="StrategyPrototypes.d"; while sleep 1; do if [ "$d" -nt "x64" ]; then echo "RUNNING..."; /c/D/dmd-2.089.0/windows/bin/rdmd.exe "$d"; touch "x64"; date; fi; done
+
+# Linux:
+d="StrategyPrototypes"; while sleep 1; do if [ "$d".d -nt "x64" ]; then echo "COMPILING..."; dmd -boundscheck=on -m64 -lowmem -of="$d" *.d && ./"$d"; touch "x64"; date; fi; done
+d="StrategyPrototypes"; time dmd -release -O -mcpu=native -m64 -lowmem -boundscheck=off -of="$d" *.d && ./"$d"
