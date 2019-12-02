@@ -1,0 +1,17 @@
+Refactorings:
+
+	2) Mover SecurityInfo p/ seu próprio arquivo
+	1) Sua variável estática, info, vira securityInfos[(string)security]
+	3) DExchange passa a receber, em seu construtor (que vai virar uma DExchangeSession), o security -- guardado em um field e usado sempre que necessário
+
+	4) DExchange passa a ser uma base class cujo implementador habilitádo a executá-la como conhecemos hoje será o LocalDExchange. Além disso, DExchange terá alguns métodos movidos para DExchangeSession. DExchange passa a conter a parte estática (pertinente a toda a bolsa) e o DExchangeSession passa a conter as infos o que os usuários precisam para enviar ordens e terem suas notificações atendidas.
+
+	O DExchange estático conta com métodos de notificação gerais que, a princípio, são abstratos -- Por isso DExchange pode vir a ser chamada de AbstractDExchange. Esses métodos (a saber: dispatchExecutionEvents e dispatchBookEvents -- mas também os ainda não existentes, dispatchOrderCreationEvents e dispatchOrderCancellationEvents) são todos abstratos. O LocalDExchange os implementa para serem atendidos por callbacks de seus clientes... já a FixDExchange os implementa para enviar mensagens FIX com seus respectivos IDs. Talvez, neste caso, seja necessário termos as classes LocalDExchangeSession e FixDExchangeSession -- a verificar. Neste caso, uma possível classe AbstractDExchangeSession pode existir para conter métodos e outras estruturas comuns.
+
+Passos:
+
+	1) Dividir 'DExchange' entre 'DExchange' e 'DExchangeSession'
+	2) Dividir o 'DExchange' resultante entre 'AbstractDExchange' e 'LocalDExchange' e acabar com a classe 'DExchange' (que passa a ser apenas o nome do módulo)
+	3) Agora com as classes 'AbstractDExchange', 'LocalDExchange' e 'DExchangeSession', esta última deve ser renomeada para 'LocalDExchangeSession'
+	4) Criar a classe conceito 'ConsoleDExchange' e 'ConsoleDExchangeSession'. Esta última, por se tratar de apenas 1 console e, portanto, 1 única session, deve ser capaz de receber mensagens, no mesmo console, de quantos usuários houver. Deve emitir notificações únicas (mesmo que tenhamos 10 usuários, apenas um executionEvent deve ser gerado para cada ordem, por exemplo). Deve ser capaz de responder a mensagens pedindo o book... qual seria o propósito destas classes? Garantir o desacoplamento? Permitir execução de scripts? Gerar logs? Se sim (para "gerar logs") deve ser possível ter quantas *DExchanges eu quiser anexadas à mesma 'AbstractDExchange'.
+	5) Criar as classes 'FixDExchange' e 'FixDExchangeSession' -- deixadas vazias, prevendo as possíveis extensões

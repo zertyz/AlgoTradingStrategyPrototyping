@@ -60,7 +60,7 @@ template TradesFromRawData(string tradesRawData) {
 				                       (1000*60*match.front[2].to!long) +	// min
 				                       (1000*60*60*match.front[1].to!long);	// hour*/
 				trades[i].timeMilliS = record[0][9..11].to!ulong +				// ms
-				                       (1000*record[0][6..7].to!ulong) +			// sec
+				                       (1000*record[0][6..7].to!ulong) +		// sec
 				                       (1000*60*record[0][3..4].to!ulong) +		// min
 				                       (1000*60*60*record[0][0..1].to!ulong);	// hour
 				trades[i].qty        = record[1].replace(".", "").to!uint;
