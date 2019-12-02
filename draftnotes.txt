@@ -1,17 +1,25 @@
 Refactorings:
 
-	2) Mover SecurityInfo p/ seu prÛprio arquivo
-	1) Sua vari·vel est·tica, info, vira securityInfos[(string)security]
-	3) DExchange passa a receber, em seu construtor (que vai virar uma DExchangeSession), o security -- guardado em um field e usado sempre que necess·rio
+	2) Mover SecurityInfo p/ seu pr√≥prio arquivo
+	1) Sua vari√°vel est√°tica, info, vira securityInfos[(string)security]
+	3) DExchange passa a receber, em seu construtor (que vai virar uma DExchangeSession), o security -- guardado em um field e usado sempre que necess√°rio
 
-	4) DExchange passa a ser uma base class cujo implementador habilit·do a execut·-la como conhecemos hoje ser· o LocalDExchange. AlÈm disso, DExchange ter· alguns mÈtodos movidos para DExchangeSession. DExchange passa a conter a parte est·tica (pertinente a toda a bolsa) e o DExchangeSession passa a conter as infos o que os usu·rios precisam para enviar ordens e terem suas notificaÁıes atendidas.
+	4) DExchange passa a ser uma base class cujo implementador habilit√°do a execut√°-la como conhecemos hoje ser√° o LocalDExchange. Al√©m disso, DExchange ter√° alguns m√©todos movidos para DExchangeSession. DExchange passa a conter a parte est√°tica (pertinente a toda a bolsa) e o DExchangeSession passa a conter as infos o que os usu√°rios precisam para enviar ordens e terem suas notifica√ß√µes atendidas.
 
-	O DExchange est·tico conta com mÈtodos de notificaÁ„o gerais que, a princÌpio, s„o abstratos -- Por isso DExchange pode vir a ser chamada de AbstractDExchange. Esses mÈtodos (a saber: dispatchExecutionEvents e dispatchBookEvents -- mas tambÈm os ainda n„o existentes, dispatchOrderCreationEvents e dispatchOrderCancellationEvents) s„o todos abstratos. O LocalDExchange os implementa para serem atendidos por callbacks de seus clientes... j· a FixDExchange os implementa para enviar mensagens FIX com seus respectivos IDs. Talvez, neste caso, seja necess·rio termos as classes LocalDExchangeSession e FixDExchangeSession -- a verificar. Neste caso, uma possÌvel classe AbstractDExchangeSession pode existir para conter mÈtodos e outras estruturas comuns.
+	O DExchange est√°tico conta com m√©todos de notifica√ß√£o gerais que, a princ√≠pio, s√£o abstratos -- Por isso DExchange pode vir a ser chamada de AbstractDExchange. Esses m√©todos (a saber: dispatchExecutionEvents e dispatchBookEvents -- mas tamb√©m os ainda n√£o existentes, dispatchOrderCreationEvents e dispatchOrderCancellationEvents) s√£o todos abstratos. O LocalDExchange os implementa para serem atendidos por callbacks de seus clientes... j√° a FixDExchange os implementa para enviar mensagens FIX com seus respectivos IDs. Talvez, neste caso, seja necess√°rio termos as classes LocalDExchangeSession e FixDExchangeSession -- a verificar. Neste caso, uma poss√≠vel classe AbstractDExchangeSession pode existir para conter m√©todos e outras estruturas comuns.
 
 Passos:
 
 	1) Dividir 'DExchange' entre 'DExchange' e 'DExchangeSession'
-	2) Dividir o 'DExchange' resultante entre 'AbstractDExchange' e 'LocalDExchange' e acabar com a classe 'DExchange' (que passa a ser apenas o nome do mÛdulo)
-	3) Agora com as classes 'AbstractDExchange', 'LocalDExchange' e 'DExchangeSession', esta ˙ltima deve ser renomeada para 'LocalDExchangeSession'
-	4) Criar a classe conceito 'ConsoleDExchange' e 'ConsoleDExchangeSession'. Esta ˙ltima, por se tratar de apenas 1 console e, portanto, 1 ˙nica session, deve ser capaz de receber mensagens, no mesmo console, de quantos usu·rios houver. Deve emitir notificaÁıes ˙nicas (mesmo que tenhamos 10 usu·rios, apenas um executionEvent deve ser gerado para cada ordem, por exemplo). Deve ser capaz de responder a mensagens pedindo o book... qual seria o propÛsito destas classes? Garantir o desacoplamento? Permitir execuÁ„o de scripts? Gerar logs? Se sim (para "gerar logs") deve ser possÌvel ter quantas *DExchanges eu quiser anexadas ‡ mesma 'AbstractDExchange'.
-	5) Criar as classes 'FixDExchange' e 'FixDExchangeSession' -- deixadas vazias, prevendo as possÌveis extensıes
+	2) Dividir o 'DExchange' resultante entre 'AbstractDExchange' e 'LocalDExchange' e acabar com a classe 'DExchange' (que passa a ser apenas o nome do m√≥dulo)
+	3) Agora com as classes 'AbstractDExchange', 'LocalDExchange' e 'DExchangeSession', esta √∫ltima deve ser renomeada para 'LocalDExchangeSession'
+       --> As callbacks est√£o definidas em AbstractDExchangeSession -- todas as sessions ter√£o callbacks? N√£o. As FIX ter√£o um socket, por exemplo... E ter√£o thread(s) pr√≥pria(s) para o envio das notifica√ß√µes
+       --> Por simetria, onde est√£o definidas as chamadas √†s callbacks? Se estiverem em 'LocalDExchange', concordo com a movimenta√ß√£o. Se n√£o, tenho que pensar mais.
+           R: SIM, est√£o! Por√©m parte est√° (erroneamente, talvez) definida na classe 'Order', que fica dentro de AbstractDExchange.
+           T: Ent√£o o refactoring de 'Order' deve vir primeiro. Se for poss√≠vel mover a regra das chamadas para dentro de LocalDExchange e deixar a 'Order' livre desta responsabilidade, me parece o melhor caminho a seguir. Se n√£o for poss√≠vel, talvez uma alternativa seria ter o pr√≥prio m√≥dulo de 'Order'... tirando-a de AbstractDExchange.
+           R: Corre√ß√£o. Onde eu falei 'Order' acima, substitua para 'PriceLevel'. Feito isso, tudo o que foi dito acima por n√≥s 2 continua se aplicando e, sim, √© poss√≠vel mover a l√≥gica das callbacks para fora do 'PriceLevel' e para dentro de 'LocalDExchange'. J√° estou fazendo...
+       3.1) Mover as callbacks de AbstractDExchangeSession p/ LocalDExchangeSession
+	*4) Criar a classe conceito 'ConsoleDExchange' e 'ConsoleDExchangeSession'. Esta √∫ltima, por se tratar de apenas 1 console e, portanto, 1 √∫nica session, deve ser capaz de receber mensagens, no mesmo console, de quantos usu√°rios houver. Deve emitir notifica√ß√µes √∫nicas (mesmo que tenhamos 10 usu√°rios, apenas um executionEvent deve ser gerado para cada ordem, por exemplo). Deve ser capaz de responder a mensagens pedindo o book... qual seria o prop√≥sito destas classes? Garantir o desacoplamento? Permitir execu√ß√£o de scripts? Gerar logs? Sincronizar bolsas? Se sim (para "gerar logs") deve ser poss√≠vel ter quantas *DExchanges eu quiser anexadas √† mesma 'AbstractDExchange'.
+	5) Criar as classes 'FixDExchange' e 'FixDExchangeSession' -- deixadas vazias, prevendo as poss√≠veis extens√µes
+	6) Criar as classes 'SyncDExchange' e SyncDExchangeSession'
+	7) Considerar as classes para simular o comportamento da B3 e da Millenium (de Londres), derivando de LocalDExchange? ou de FixDExchange?

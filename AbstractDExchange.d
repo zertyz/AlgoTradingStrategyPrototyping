@@ -47,60 +47,21 @@ abstract class AbstractDExchange {
 	OrderInfo[uint] trackedOrders;	// := [ orderId: OrderInfo, ... ] 'OrderInfo' não poderia ser unificado com 'Order'?
 
 
-	// event dispatching containers (containing sessions)
-	AbstractDExchangeSession[string] onExecutionSessionsByParty;			// map of sessions that want the 'OrderExecuted' event notification for their orders := {[party]=..., ...}
-	AbstractDExchangeSession[]       onBookSessions;						// array of sessions that want the 'BookChanged' events
-	AbstractDExchangeSession[]       onTradeSessions;						// array of sessions that want the 'Trade' events'
-	AbstractDExchangeSession[]       onAdditionAndCancellationSessions;		// array of sessions that want the order 'Addition' and 'Cancellation' events
-
-	/** adds the 'session' to the event dispatching containers */
-	void registerSession(AbstractDExchangeSession session) {
-		onExecutionSessionsByParty[session.party] = session;
-		uint onBookSessionsIndex                    = cast(uint)onBookSessions.countUntil(session);
-		uint onTradeSessionsIndex                   = cast(uint)onTradeSessions.countUntil(session);
-		uint onAdditionAndCancellationSessionsIndex = cast(uint)onAdditionAndCancellationSessions.countUntil(session);
-		// edit or append?
-		if (onBookSessionsIndex == -1u) {
-			onBookSessions ~= session;
-		} else {
-			onBookSessions[onBookSessionsIndex] = session;
-		}
-		if (onTradeSessionsIndex == -1u) {
-			onTradeSessions ~= session;
-		} else {
-			onTradeSessions[onTradeSessionsIndex] = session;
-		}
-		if (onAdditionAndCancellationSessionsIndex == -1u) {
-			onAdditionAndCancellationSessions ~= session;
-		} else {
-			onAdditionAndCancellationSessions[onAdditionAndCancellationSessionsIndex] = session;
-		}
-	}
-
-	/** removes 'session' from the event dispatching containers */
-	void unregisterSession(AbstractDExchangeSession session) {
-		onExecutionSessionsByParty.remove(session.party);
-		uint onBookSessionsIndex                    = cast(uint)onBookSessions.countUntil(session);
-		uint onTradeSessionsIndex                   = cast(uint)onTradeSessions.countUntil(session);
-		uint onAdditionAndCancellationSessionsIndex = cast(uint)onAdditionAndCancellationSessions.countUntil(session);
-		// really remove?
-		if (onBookSessionsIndex != -1u) {
-			onBookSessions = onBookSessions.remove(onBookSessionsIndex);
-		}
-		if (onTradeSessionsIndex != -1u) {
-			onTradeSessions = onTradeSessions.remove(onTradeSessionsIndex);
-		}
-		if (onAdditionAndCancellationSessionsIndex != -1u) {
-			onAdditionAndCancellationSessions = onAdditionAndCancellationSessions.remove(onAdditionAndCancellationSessionsIndex);
-		}
-	}
-
-	class PriceLevel {
+	/** operations */
+	struct PriceLevel {
 
 		Order[] orders;
 		uint totalQuantity = 0;
 
-		/** Order 'Addition' event */
+		// operations on the 'PriceLevel' objects are moved to the 'AbstractDExchange' and derived classes,
+		// for they change as the purpose of the '*DExchange' specialization.
+		// They should, however, respect:
+		//   1) the 'orders' array should behave like a queue: new orders go to the tail.
+		//   2) editions to a member of 'orders' cause the edited member to go to the tail
+		//   3) 'totalQuantity' must be updated appropriately, on enqueueing, cancelling and updating
+		//   4) if 'trackedOrders' is used, the cancel methods must remove the orders also from theere
+
+/*
 		void enqueueOrder(ref Order order) {
 			orders ~= order;
 			totalQuantity += order.quantity;
@@ -110,8 +71,7 @@ abstract class AbstractDExchange {
 			}
 		}
 
-		/** Order 'Cancellation' event for an 'orderId' */
-		bool cancelOrderFromId(uint orderId) {
+		bool _cancelOrderFromId(uint orderId) {
 			for (uint i=0; i<orders.length; i++) {
 				if (orders[i].orderId == orderId) {
 					// dispatch to everyone, even to the order canceller
@@ -127,8 +87,7 @@ abstract class AbstractDExchange {
 			return false;
 		}
 
-		/** 'onCancelledOrder' event for an orders[] 'index' */
-		bool cancelOrderFromIndex(uint index) {
+		bool _cancelOrderFromIndex(uint index) {
 			// dispatch to everyone, even to the order canceller
 			foreach(session; onAdditionAndCancellationSessions) {
 				session.onCancellation(orders[index].orderId, orders[index].side, info.exchangeValueToFaceValue(orders[index].exchangeValue), orders[index].quantity);
@@ -139,7 +98,6 @@ abstract class AbstractDExchange {
 			return true;
 		}
 
-		/** 'onCancelledOrder' event for all of 'orders[]' */
 		void cancelAllOrders() {
 			foreach(ref order; orders) {
 				// dispatch to everyone, even to the order canceller
@@ -150,7 +108,7 @@ abstract class AbstractDExchange {
 			}
 			orders = orders.remove(tuple(0, orders.length));
 			totalQuantity = 0;
-		}
+		}*/
 	}
 
 	// books
@@ -162,13 +120,6 @@ abstract class AbstractDExchange {
 		bids.clear();
 		asks.clear();
 		trackedOrders.clear();
-	}
-
-	void resetSessions() {
-		onExecutionSessionsByParty.clear();
-		onBookSessions.length                    = 0;
-		onTradeSessions.length                   = 0;
-		onAdditionAndCancellationSessions.length = 0;
 	}
 
 
@@ -317,8 +268,27 @@ abstract class AbstractDExchange {
 	}
 
 
-	// order manipulation
-	/////////////////////
+	// internal order manipulation
+	//////////////////////////////
+
+
+	/** internally enqueue the order on the appropriate 'PriceLevel', so the 'Addition' event will be dispatched and the
+	    order will be available for aggression (execution) and all other operations -- updating, cancellation, ... */
+	void enqueueOrder(string party, ref PriceLevel priceLevel, ref Order order) {
+		priceLevel.orders ~= order;
+		priceLevel.totalQuantity += order.quantity;
+		dispatchAdditionEvents(party, order.orderId, order.side, info.exchangeValueToFaceValue(order.exchangeValue), order.quantity);
+	}
+
+	/** internally removes all orders from the given 'priceLevel', dispatching the 'Cancellation' events for each order & session */
+	void cancelAllOrders(string party, ref PriceLevel priceLevel) {
+		foreach(ref order; priceLevel.orders) {
+			trackedOrders.remove(order.orderId);
+			dispatchCancellationEvents(party, order.orderId, order.side, info.exchangeValueToFaceValue(order.exchangeValue), order.quantity);
+		}
+		priceLevel.orders = priceLevel.orders.remove(tuple(0, priceLevel.orders.length));
+		priceLevel.totalQuantity = 0;
+	}
 
 	bool addOrder(string oppositeBookSortExpr, ETradeSide side)
 	             (PriceLevel[uint]* book, PriceLevel[uint]* oppositeBook, string party, AbstractDExchangeSession session,
@@ -345,7 +315,7 @@ abstract class AbstractDExchange {
 				// get & set the price level to which the order shall be added
 				PriceLevel* priceLevel = limitExchangeValue in *book;
 				if (priceLevel is null) {
-					PriceLevel newPriceLevel = new PriceLevel();
+					PriceLevel newPriceLevel;
 					(*book)[limitExchangeValue] = newPriceLevel;
 					priceLevel = limitExchangeValue in *book;
 				}
@@ -353,7 +323,7 @@ abstract class AbstractDExchange {
 				Order order = Order(orderId, side, limitExchangeValue, remainingQuantity);
 				// prepare for the 'Executed' events & enqueue the order on the book
 				trackedOrders[orderId] = OrderInfo(party, session);
-				(*priceLevel).enqueueOrder(order);
+				enqueueOrder(party, *priceLevel, order);
 				// price book events
 				dispatchBookEvents();
 				return true;
@@ -374,6 +344,12 @@ abstract class AbstractDExchange {
 		return addOrder!("a > b", ETradeSide.SELL)(&asks, &bids, party, session, orderId, info.faceValueToExchangeValue(limitFaceValue), quantity);
 	}
 
+
+	// external order manipulation
+	//////////////////////////////
+
+	/** instructs the exchange that the authenticated 'party' wants to add an order with the specified parameters.
+	  * Returns the 'DEOrderId' -- the internal DExchange's order id, which, from now on, should be used reference each particular order. */
 	bool addOrder(ETradeSide side, string party, AbstractDExchangeSession session, uint orderId, real limitFaceValue, uint quantity) {
 		final switch (side) {
 			case ETradeSide.BUY:
@@ -384,15 +360,21 @@ abstract class AbstractDExchange {
 	}
 
 
+
 	// event dispatching methods
 	////////////////////////////
 
-	/** Dispatch 'Trade' and 'Execution' events.
+	/** Dispatch order 'Addition' events for all session, excluding the session adding the order */
+	abstract void dispatchAdditionEvents(string party, uint orderId, ETradeSide side, real faceValue, uint quantity);
+
+	/** Dispatch order 'Cancellation' events for all session, excluding the session adding the order */
+	abstract void dispatchCancellationEvents(string party, uint orderId, ETradeSide side, real faceValue, uint quantity);
+
+	/** Dispatch 'Trade' and order 'Execution' events.
 	  * priority: Execution, Trade (only called for sessions not called on 'onExecution' -- that is: only called for parties not involved on the trade) */
 	abstract void dispatchExecutionEvents(uint aggressedOrderId, uint aggressorOrderId, string aggressorParty, uint quantity, uint exchangeValue, ETradeSide aggressorSide);
 
 	/** builds the price 'bids' and 'asks' books and dispatch the 'Book' event. */
 	abstract void dispatchBookEvents();
-
 
 }

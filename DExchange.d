@@ -5,8 +5,9 @@ module DExchange;
 public import AbstractDExchange;
 public import AbstractDExchangeSession;
 public import LocalDExchange;
-public import /*Local*/DExchangeSession;
+public import LocalDExchangeSession;
 public import BookManipulators;
+public import Types;
 
 // test methods
 /*

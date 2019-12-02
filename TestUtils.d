@@ -2,7 +2,7 @@ module TestUtils;
 
 /** infrastructure useful when 'unittest'ing the DExchange package */
 
-//version(unittest) {
+version(unittest) {
 
 import Types;
 
@@ -83,4 +83,4 @@ class TestUtils {
 
 }
 
-//}		// version(unittest) {...
+}		// version(unittest) {...

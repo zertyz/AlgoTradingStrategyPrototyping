@@ -16,18 +16,9 @@ version (unittest) {
 
 /** Session class used internally for building the book */
 class BookBuildingSession(string party): AbstractDExchangeSession {
-
 	this(AbstractDExchange exchange) {
 		super(exchange, party);
 	}
-
-	// no events are needed
-	override void onExecution(uint tradeEventId, uint orderId, ref Trade trade, bool isBuying) {}
-	override void onTrade(uint tradeEventId, ref Trade trade, bool isAttackingBids) {}
-	override void onBook(immutable PriceBookEntry[]* bidsPriceBook, immutable PriceBookEntry[]* asksPriceBook) {}
-	override void onAddition(uint orderId, ETradeSide side, real limitFaceValue, uint quantity) {}
-	override void onCancellation(uint orderId, ETradeSide side, real limitFaceValue, uint quantity) {}
-
 }
 
 class BookManipulators {
@@ -82,7 +73,7 @@ class BookManipulators {
 			case ETradeSide.SELL:
 				aggressedLevel = exchangeValue in exchange.bids;
 				if (!aggressedLevel) {
-					exchange.bids[exchangeValue] = exchange.new PriceLevel();
+					exchange.bids[exchangeValue] = exchange.PriceLevel();
 					aggressedLevel = exchangeValue in exchange.bids;
 				}
 				aggressedSide = ETradeSide.BUY;
@@ -90,7 +81,7 @@ class BookManipulators {
 			case ETradeSide.BUY:
 				aggressedLevel = exchangeValue in exchange.asks;
 				if (!aggressedLevel) {
-					exchange.asks[exchangeValue] = exchange.new PriceLevel();
+					exchange.asks[exchangeValue] = exchange.PriceLevel();
 					aggressedLevel = exchangeValue in exchange.asks;
 				}
 				aggressedSide = ETradeSide.SELL;
@@ -104,7 +95,7 @@ class BookManipulators {
 			if ( (exchangeValueIndex == exchangeValue && aggressorSide == ETradeSide.SELL) || (exchangeValueIndex < exchangeValue) ) {
 				break;
 			}
-			(*bidLevel).cancelAllOrders();
+			exchange.cancelAllOrders(counterPartySession.party, *bidLevel);
 		}
 		// treat the sell side
 		foreach(exchangeValueIndex; exchange.asks.keys.sort!("a < b")) {
@@ -112,7 +103,7 @@ class BookManipulators {
 			if ( (exchangeValueIndex == exchangeValue && aggressorSide == ETradeSide.BUY) || (exchangeValueIndex > exchangeValue) ) {
 				break;
 			}
-			(*askLevel).cancelAllOrders();
+			exchange.cancelAllOrders(counterPartySession.party, *askLevel);
 		}
 
 		// assure enough counter-party orders are present on the to-be aggressed side
@@ -180,6 +171,7 @@ unittest {
 	// 'assureExecutability'
 	////////////////////////
 
+	writeln("## BookManipulators.d ##");
 	testUtils.startTest("Unit testing method 'assureExecutability'");
 
 	testUtils.startSubTest("Assure a future BUY possibility on an empty");
@@ -211,21 +203,26 @@ unittest {
 
 	void test(string testNamePrefix, real faceValue, uint minLevels, uint maxOrdersPerPriceLevel, uint maxOrderQty) {
 		uint exchangeValue = exchange.info.faceValueToExchangeValue(faceValue);
+//		exchange.resetBooks();
 		testUtils.startSubTest(testNamePrefix ~ " " ~ format!"%,3.2f"(faceValue) ~
 					           " with, at least, " ~ format!"%,d"(minLevels) ~ 
 					           " levels of up to " ~ format!"%,d"(maxOrdersPerPriceLevel) ~ 
 					           " orders each (" ~ format!"%,d"(maxOrderQty) ~ 
 					           " max qtys)");
+		ETradeSide aggressorSide;
+		uint quantity = bookManipulators.checkExecutability(faceValue, &aggressorSide);
+		write(" ",aggressorSide," will atack ",(aggressorSide == ETradeSide.BUY ? ETradeSide.SELL : ETradeSide.BUY),"...");
+		bookManipulators.assureExecutability(aggressorSide, faceValue, maxOrderQty);
+
 		bookManipulators.fillBook(faceValue, minLevels*2, minLevels*2, maxOrdersPerPriceLevel, maxOrderQty);
 		// check bids
 		foreach(exchangeValueIndex; exchange.bids.keys.sort!("a > b")) {
-			if (!(exchangeValueIndex < exchangeValue)) {
-				writeln("no BID entry should be greater than nor equal to the given faceValue. BOOK:");
+			if (!(exchangeValueIndex <= exchangeValue) && exchange.bids[exchangeValueIndex].totalQuantity > 0) {
+				writeln("no BID entry (",exchangeValueIndex,") should be greater than the given faceValue (",exchangeValue,"). BOOK:");
 				bookManipulators.dumpPriceBook();
-				ETradeSide aggressorSide;
-				uint qty = bookManipulators.checkExecutability(faceValue, &aggressorSide);
-				writeln("checkExecutability: we may ",aggressorSide," at least ",qty," for ",faceValue," with the current book");
-				//assert(false);
+				quantity = bookManipulators.checkExecutability(faceValue, &aggressorSide);
+				writeln("checkExecutability: we may ",aggressorSide," at least ",quantity," for ",faceValue," with the current book");
+				assert(false);
 			}
 			//assert(exchangeValueIndex < exchangeValue, "no BID entry should be greater than nor equal to the given faceValue");
 			assert(exchange.bids[exchangeValueIndex].orders.length < maxOrdersPerPriceLevel, "more than the maximum number of orders were found at a BID price level");
@@ -235,12 +232,12 @@ unittest {
 		}
 		// check asks
 		foreach(exchangeValueIndex; exchange.asks.keys.sort!("a < b")) {
-			if (!(exchangeValueIndex > exchangeValue)) {
-				writeln("no ASK entry should be smaller than nor equal to the given faceValue. BOOK:");
+			if (!(exchangeValueIndex >= exchangeValue) && exchange.asks[exchangeValueIndex].totalQuantity > 0) {
+				writeln("no ASK entry (",exchangeValueIndex,") should be smaller than the given faceValue (",exchangeValue,"). BOOK:");
 				bookManipulators.dumpPriceBook();
-				ETradeSide aggressorSide;
-				uint qty = bookManipulators.checkExecutability(faceValue, &aggressorSide);
-				writeln("checkExecutability: we may ",aggressorSide," at least ",qty," for ",faceValue," with the current book");
+				quantity = bookManipulators.checkExecutability(faceValue, &aggressorSide);
+				writeln("checkExecutability: we may ",aggressorSide," at least ",quantity," for ",faceValue," with the current book");
+				assert(false);
 			}
 			//assert(exchangeValueIndex > exchangeValue, "no ASK entry should be smaller than nor equal to the given faceValue");
 			assert(exchange.asks[exchangeValueIndex].orders.length < maxOrdersPerPriceLevel, "more than the maximum number of orders were found at an ASK price level");
@@ -252,13 +249,12 @@ unittest {
 	}
 
 	// test cases
-	testUtils.startTest("Unit testing method 'fillBook'");
+	testUtils.startTest("Unit testing method 'checkExecutability', 'assureExecutability' & 'fillBook'");
 
 	exchange.resetBooks();
 	test("Building an empty, innocuous book around", 42.07, 50, 1000, 1000);
 	test("Moving book to",                           42.06, 50, 1000, 1000);
 	test("Moving back to",                           42.07, 50, 1000, 1000);
-	exchange.resetBooks();
 	test("Building an empty book around", 0.10, 50, 100, 1000);
 	test("Moving book to",                0.01, 50, 100, 1000);
 
