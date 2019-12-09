@@ -7,15 +7,17 @@ import DExchange: AbstractDExchange;
 abstract class AbstractDExchangeSession {
 
 	AbstractDExchange exchange;
-	string party;
+	uint              securityId;
+	string            party;
 
-	this(AbstractDExchange exchange, string party) {
-		this.exchange = exchange;
-		this.party    = party;
+	this(AbstractDExchange exchange, uint securityId, string party) {
+		this.exchange   = exchange;
+		this.securityId = securityId;
+		this.party      = party;
 	}
 
 	void addOrder(ETradeSide side, uint orderId, real limitFaceValue, uint quantity) {
-		exchange.addOrder(side, party, this, orderId, limitFaceValue, quantity);
+		exchange.addOrder(securityId, side, this, orderId, limitFaceValue, quantity);
 	}
 
 }

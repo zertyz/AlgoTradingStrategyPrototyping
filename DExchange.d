@@ -9,6 +9,21 @@ public import LocalDExchangeSession;
 public import BookManipulators;
 public import Types;
 
+/**
+
+1) Possibilidades da Análise dealhada da Micro-estrutura, na prática:
+
+	- EntryPointMessagGuidelines2.9.4, pg. 44, "7. Execution Report"
+	- UMDF TCP Market Data Specification, 2.0.10, pg. 14, "5.2 Order Depth Book"
+	- idem, pg. 65, "6.8.1 Book Updates"
+
+	--> Ver tb market data do cedro.
+
+2) Explicação detalhada do funcionamento das ordens:
+	- Manual de procedimentos operacionais de de negociação da b3, pg. 33, "Ordens e Ofertas"
+
+*/
+
 // test methods
 /*
 void test() {

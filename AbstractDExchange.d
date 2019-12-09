@@ -1,11 +1,13 @@
 module AbstractDExchange;
 
+import std.stdio;
 import std.math;
 import std.conv;
 import std.algorithm;
+import std.array;
 import std.typecons : tuple;
 
-import Types : ETradeSide, PriceBookEntry;
+import Types : ETradeSide, PriceBookEntry, Order, PriceLevel, securityInfos;
 import AbstractDExchangeSession;
 
 version (unittest) {
@@ -14,112 +16,24 @@ version (unittest) {
 
 abstract class AbstractDExchange {
 
-	struct SecurityInfo {
-		/** prices in orders are multiplied by this amount in order to be representable by ints */
-		real faceToExchangeFactor;
-		// bandas, horários de negociação, lote mínimo, faceToPrice factor (ex: mini-indice bovespa tem price = 20%*face), etc.
-
-		/** routine to convert from the 'faceValue' (real) to the 'exchangeValue' (uint) -- the value best manipulated by the exchange */
-		uint faceValueToExchangeValue(real faceValue) {
-			return round(faceValue * faceToExchangeFactor).to!uint;
-		}
-
-		/** routine to convert from the 'exchangeValue' (uint) to the 'faceValue' (real) -- the value the user expects to see */
-		real exchangeValueToFaceValue(uint exchangeValue) {
-			return exchangeValue.to!real / faceToExchangeFactor;
-		}
-	}
-
-	SecurityInfo info = SecurityInfo(100.0.to!real);		// c++ requires "long double" and prices must be set as long double literals -- 37.05l
-
-	struct Order {
-		uint       orderId;
-		ETradeSide side;
-		uint       exchangeValue;
-		uint       quantity;
-	}
-
 	// tracked orders -- all active orders, indexeable by 'internalOrderId' (currently we use 'partyOrderId', trusting it will be unique)
 	struct OrderInfo {
 		string                   party;
 		AbstractDExchangeSession session;
 	}
-	OrderInfo[uint] trackedOrders;	// := [ orderId: OrderInfo, ... ] 'OrderInfo' não poderia ser unificado com 'Order'?
-
-
-	/** operations */
-	struct PriceLevel {
-
-		Order[] orders;
-		uint totalQuantity = 0;
-
-		// operations on the 'PriceLevel' objects are moved to the 'AbstractDExchange' and derived classes,
-		// for they change as the purpose of the '*DExchange' specialization.
-		// They should, however, respect:
-		//   1) the 'orders' array should behave like a queue: new orders go to the tail.
-		//   2) editions to a member of 'orders' cause the edited member to go to the tail
-		//   3) 'totalQuantity' must be updated appropriately, on enqueueing, cancelling and updating
-		//   4) if 'trackedOrders' is used, the cancel methods must remove the orders also from theere
-
-/*
-		void enqueueOrder(ref Order order) {
-			orders ~= order;
-			totalQuantity += order.quantity;
-			// dispatch to everyone, even to the order creator
-			foreach(session; onAdditionAndCancellationSessions) {
-				session.onAddition(order.orderId, order.side, info.exchangeValueToFaceValue(order.exchangeValue), order.quantity);
-			}
-		}
-
-		bool _cancelOrderFromId(uint orderId) {
-			for (uint i=0; i<orders.length; i++) {
-				if (orders[i].orderId == orderId) {
-					// dispatch to everyone, even to the order canceller
-					foreach(session; onAdditionAndCancellationSessions) {
-						session.onCancellation(orders[i].orderId, orders[i].side, info.exchangeValueToFaceValue(orders[i].exchangeValue), orders[i].quantity);
-					}
-					totalQuantity -= orders[i].quantity;
-					trackedOrders.remove(orders[i].orderId);
-					orders = orders.remove(i);
-					return true;
-				}
-			}
-			return false;
-		}
-
-		bool _cancelOrderFromIndex(uint index) {
-			// dispatch to everyone, even to the order canceller
-			foreach(session; onAdditionAndCancellationSessions) {
-				session.onCancellation(orders[index].orderId, orders[index].side, info.exchangeValueToFaceValue(orders[index].exchangeValue), orders[index].quantity);
-			}
-			totalQuantity -= orders[index].quantity;
-			trackedOrders.remove(orders[index].orderId);
-			orders = orders.remove(index);
-			return true;
-		}
-
-		void cancelAllOrders() {
-			foreach(ref order; orders) {
-				// dispatch to everyone, even to the order canceller
-				foreach(session; onAdditionAndCancellationSessions) {
-					session.onCancellation(order.orderId, order.side, info.exchangeValueToFaceValue(order.exchangeValue), order.quantity);
-				}
-				trackedOrders.remove(order.orderId);
-			}
-			orders = orders.remove(tuple(0, orders.length));
-			totalQuantity = 0;
-		}*/
-	}
+	OrderInfo[uint][securityInfos.length] trackedOrders;	// := { [securityId] = { [orderId] = OrderInfo, ... }, ... } não poderiamos unificar 'OrderInfo' com 'Order'?
 
 	// books
-	PriceLevel[uint] bids;
-	PriceLevel[uint] asks;
+	PriceLevel[uint][securityInfos.length] bids;	// := { [securityId] = { [price1] = PriceLevel, ... }, ... };
+	PriceLevel[uint][securityInfos.length] asks;	// idem
 
 
 	void resetBooks() {
-		bids.clear();
-		asks.clear();
-		trackedOrders.clear();
+		for (uint i=0; i<securityInfos.length; i++) {
+			bids[i].clear();
+			asks[i].clear();
+			trackedOrders[i].clear();
+		}
 	}
 
 
@@ -219,15 +133,15 @@ abstract class AbstractDExchange {
 	}
 
 	/** takes up to 'quantity' from 'orders', returning how much could be retrieved. Elements from 'orders' are removed if fully taken. */
-	uint execute(PriceLevel* priceLevel, uint quantity, uint aggressorOrderId, string aggressorParty, uint exchangeValue, ETradeSide aggressorSide) {
+	uint execute(uint securityId, PriceLevel* priceLevel, uint quantity, uint aggressorOrderId, AbstractDExchangeSession aggressorSession, uint exchangeValue, ETradeSide aggressorSide) {
 		Order[]* orders = &((*priceLevel).orders);
 		MatchAnalysis analysis = matchAnalysis(orders, quantity);
 		// portion to fully execute
 		for (uint i=0; i<analysis.fullyExecutableUntilIndex; i++) {
 			//writeln("--> fully executing order #", (*orders)[i].orderId, " in response to agression #", aggressorOrderId);
-			dispatchExecutionEvents((*orders)[i].orderId, aggressorOrderId, aggressorParty, (*orders)[i].quantity, exchangeValue, aggressorSide);
+			dispatchExecutionEvents(securityId, (*orders)[i].orderId, aggressorOrderId, aggressorSession, (*orders)[i].quantity, exchangeValue, aggressorSide);
 			// remove the order from the 'onExecution' event notifications control list
-			trackedOrders.remove((*orders)[i].orderId);
+			trackedOrders[securityId].remove((*orders)[i].orderId);
 		}
 		// remove all fully executed orders from the price point's order queue
 		if (analysis.fullyExecutableUntilIndex > 0) {
@@ -239,7 +153,7 @@ abstract class AbstractDExchange {
 			(*priceLevel).totalQuantity -= analysis.partiallyExecutableQuantity;
 			(*orders)[0].quantity -= analysis.partiallyExecutableQuantity;
 			//writeln("--> partially executing order #", (*orders)[0].orderId, " in response to agression #", aggressorOrderId);
-			dispatchExecutionEvents((*orders)[0].orderId, aggressorOrderId, aggressorParty, analysis.partiallyExecutableQuantity, exchangeValue, aggressorSide);
+			dispatchExecutionEvents(securityId, (*orders)[0].orderId, aggressorOrderId, aggressorSession, analysis.partiallyExecutableQuantity, exchangeValue, aggressorSide);
 		}
 		return analysis.fullyExecutableQuantity + analysis.partiallyExecutableQuantity;
 	}
@@ -248,20 +162,25 @@ abstract class AbstractDExchange {
 	// price book building
 	//////////////////////
 
-	void buildPriceBookEntries(PriceBookEntry[]* bidsPriceLevels, PriceBookEntry[]* asksPriceLevels) {
+	/** generate the structures to be passed by the callbacks wishing to receive the 'Book' changed event */
+	void buildPriceBookEntries(uint securityId, PriceBookEntry[]* bidsPriceLevels, PriceBookEntry[]* asksPriceLevels) {
 		(*bidsPriceLevels).length = 0;
-		foreach(exchangeValueIndex; bids.keys.sort!("a > b")) {
-			uint totalQuantity = bids[exchangeValueIndex].totalQuantity;
+		foreach(keyVal; bids[securityId].byKeyValue.array.sort!"a.key > b.key") {
+			uint exchangeValueIndex = keyVal.key;
+			PriceLevel bidLevel = keyVal.value;
+			uint totalQuantity = bidLevel.totalQuantity;
 			if (totalQuantity > 0) {
-				PriceBookEntry entry = PriceBookEntry(info.exchangeValueToFaceValue(exchangeValueIndex), totalQuantity);
+				PriceBookEntry entry = PriceBookEntry(securityInfos[securityId].exchangeValueToFaceValue(exchangeValueIndex), totalQuantity);
 				(*bidsPriceLevels) ~= entry;
 			}
 		}
 		(*asksPriceLevels).length = 0;
-		foreach(exchangeValueIndex; asks.keys.sort!("a < b")) {
-			uint totalQuantity = asks[exchangeValueIndex].totalQuantity;
+		foreach(keyVal; asks[securityId].byKeyValue.array.sort!"a.key < b.key") {
+			uint exchangeValueIndex = keyVal.key;
+			PriceLevel askLevel = keyVal.value;
+			uint totalQuantity = askLevel.totalQuantity;
 			if (totalQuantity > 0) {
-				PriceBookEntry entry = PriceBookEntry(info.exchangeValueToFaceValue(exchangeValueIndex), totalQuantity);
+				PriceBookEntry entry = PriceBookEntry(securityInfos[securityId].exchangeValueToFaceValue(exchangeValueIndex), totalQuantity);
 				(*asksPriceLevels) ~= entry;
 			}
 		}
@@ -274,24 +193,24 @@ abstract class AbstractDExchange {
 
 	/** internally enqueue the order on the appropriate 'PriceLevel', so the 'Addition' event will be dispatched and the
 	    order will be available for aggression (execution) and all other operations -- updating, cancellation, ... */
-	void enqueueOrder(string party, ref PriceLevel priceLevel, ref Order order) {
+	void enqueueOrder(uint securityId, string party, ref PriceLevel priceLevel, ref Order order) {
 		priceLevel.orders ~= order;
 		priceLevel.totalQuantity += order.quantity;
-		dispatchAdditionEvents(party, order.orderId, order.side, info.exchangeValueToFaceValue(order.exchangeValue), order.quantity);
+		dispatchAdditionEvents(securityId, party, order.orderId, order.side, securityInfos[securityId].exchangeValueToFaceValue(order.exchangeValue), order.quantity);
 	}
 
 	/** internally removes all orders from the given 'priceLevel', dispatching the 'Cancellation' events for each order & session */
-	void cancelAllOrders(string party, ref PriceLevel priceLevel) {
+	void cancelAllOrders(uint securityId, string party, ref PriceLevel priceLevel) {
 		foreach(ref order; priceLevel.orders) {
-			trackedOrders.remove(order.orderId);
-			dispatchCancellationEvents(party, order.orderId, order.side, info.exchangeValueToFaceValue(order.exchangeValue), order.quantity);
+			trackedOrders[securityId].remove(order.orderId);
+			dispatchCancellationEvents(securityId, party, order.orderId, order.side, securityInfos[securityId].exchangeValueToFaceValue(order.exchangeValue), order.quantity);
 		}
 		priceLevel.orders = priceLevel.orders.remove(tuple(0, priceLevel.orders.length));
 		priceLevel.totalQuantity = 0;
 	}
 
 	bool addOrder(string oppositeBookSortExpr, ETradeSide side)
-	             (PriceLevel[uint]* book, PriceLevel[uint]* oppositeBook, string party, AbstractDExchangeSession session,
+	             (uint securityId, PriceLevel[uint]* book, PriceLevel[uint]* oppositeBook, AbstractDExchangeSession session,
 	             uint orderId, uint limitExchangeValue, uint quantity) {
 			// attempt to match this order against existing orders on the opposite book
 			uint executedQuantity = 0;
@@ -302,8 +221,8 @@ abstract class AbstractDExchange {
 					break;
 				}
 				PriceLevel* oppositePriceLevel = exchangeValueIndex in *oppositeBook;
-				if (oppositePriceLevel != null) {
-					executedQuantity += execute(oppositePriceLevel, quantity-executedQuantity, orderId, party, exchangeValueIndex, side);
+				if (oppositePriceLevel != null && (*oppositePriceLevel).totalQuantity > 0) {
+					executedQuantity += execute(securityId, oppositePriceLevel, quantity-executedQuantity, orderId, session, exchangeValueIndex, side);
 					if (executedQuantity >= quantity) {
 						break;
 					}
@@ -322,26 +241,26 @@ abstract class AbstractDExchange {
 				// enqueue the remaining quantity
 				Order order = Order(orderId, side, limitExchangeValue, remainingQuantity);
 				// prepare for the 'Executed' events & enqueue the order on the book
-				trackedOrders[orderId] = OrderInfo(party, session);
-				enqueueOrder(party, *priceLevel, order);
+				trackedOrders[securityId][orderId] = OrderInfo(session.party, session);
+				enqueueOrder(securityId, session.party, *priceLevel, order);
 				// price book events
-				dispatchBookEvents();
+				dispatchBookEvents(securityId);
 				return true;
 			} else {
 				// price book events
 				if (executedQuantity > 0) {
-					dispatchBookEvents();
+					dispatchBookEvents(securityId);
 				}
 				return false;
 			}
 		 }
 
-	bool addBuyOrder(string party, AbstractDExchangeSession session, uint orderId, real limitFaceValue, uint quantity) {
-		return addOrder!("a < b", ETradeSide.BUY)(&bids, &asks, party, session, orderId, info.faceValueToExchangeValue(limitFaceValue), quantity);
+	bool addBuyOrder(uint securityId, AbstractDExchangeSession session, uint orderId, real limitFaceValue, uint quantity) {
+		return addOrder!("a < b", ETradeSide.BUY)(securityId, &bids[securityId], &asks[securityId], session, orderId, securityInfos[securityId].faceValueToExchangeValue(limitFaceValue), quantity);
 	}
 
-	bool addSellOrder(string party, AbstractDExchangeSession session, uint orderId, real limitFaceValue, uint quantity) {
-		return addOrder!("a > b", ETradeSide.SELL)(&asks, &bids, party, session, orderId, info.faceValueToExchangeValue(limitFaceValue), quantity);
+	bool addSellOrder(uint securityId, AbstractDExchangeSession session, uint orderId, real limitFaceValue, uint quantity) {
+		return addOrder!("a > b", ETradeSide.SELL)(securityId, &asks[securityId], &bids[securityId], session, orderId, securityInfos[securityId].faceValueToExchangeValue(limitFaceValue), quantity);
 	}
 
 
@@ -350,12 +269,12 @@ abstract class AbstractDExchange {
 
 	/** instructs the exchange that the authenticated 'party' wants to add an order with the specified parameters.
 	  * Returns the 'DEOrderId' -- the internal DExchange's order id, which, from now on, should be used reference each particular order. */
-	bool addOrder(ETradeSide side, string party, AbstractDExchangeSession session, uint orderId, real limitFaceValue, uint quantity) {
+	bool addOrder(uint securityId, ETradeSide side, AbstractDExchangeSession session, uint orderId, real limitFaceValue, uint quantity) {
 		final switch (side) {
 			case ETradeSide.BUY:
-				return addBuyOrder(party, session, orderId, limitFaceValue, quantity);
+				return addBuyOrder(securityId, session, orderId, limitFaceValue, quantity);
 			case ETradeSide.SELL:
-				return addSellOrder(party, session, orderId, limitFaceValue, quantity);
+				return addSellOrder(securityId, session, orderId, limitFaceValue, quantity);
 		}
 	}
 
@@ -365,16 +284,16 @@ abstract class AbstractDExchange {
 	////////////////////////////
 
 	/** Dispatch order 'Addition' events for all session, excluding the session adding the order */
-	abstract void dispatchAdditionEvents(string party, uint orderId, ETradeSide side, real faceValue, uint quantity);
+	abstract void dispatchAdditionEvents(uint securityId, string party, uint orderId, ETradeSide side, real faceValue, uint quantity);
 
 	/** Dispatch order 'Cancellation' events for all session, excluding the session adding the order */
-	abstract void dispatchCancellationEvents(string party, uint orderId, ETradeSide side, real faceValue, uint quantity);
+	abstract void dispatchCancellationEvents(uint securityId, string party, uint orderId, ETradeSide side, real faceValue, uint quantity);
 
 	/** Dispatch 'Trade' and order 'Execution' events.
 	  * priority: Execution, Trade (only called for sessions not called on 'onExecution' -- that is: only called for parties not involved on the trade) */
-	abstract void dispatchExecutionEvents(uint aggressedOrderId, uint aggressorOrderId, string aggressorParty, uint quantity, uint exchangeValue, ETradeSide aggressorSide);
+	abstract void dispatchExecutionEvents(uint securityId, uint aggressedOrderId, uint aggressorOrderId, AbstractDExchangeSession aggressorSession, uint quantity, uint exchangeValue, ETradeSide aggressorSide);
 
 	/** builds the price 'bids' and 'asks' books and dispatch the 'Book' event. */
-	abstract void dispatchBookEvents();
+	abstract void dispatchBookEvents(uint securityId);
 
 }

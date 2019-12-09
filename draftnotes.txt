@@ -23,3 +23,6 @@ Passos:
 	5) Criar as classes 'FixDExchange' e 'FixDExchangeSession' -- deixadas vazias, prevendo as possíveis extensões
 	6) Criar as classes 'SyncDExchange' e SyncDExchangeSession'
 	7) Considerar as classes para simular o comportamento da B3 e da Millenium (de Londres), derivando de LocalDExchange? ou de FixDExchange?
+
+Sub-Passos:
+	a) LocalSession, ConsoleSession: Cada session pode assinar eventos de quantos papeis quiser

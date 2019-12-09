@@ -1,18 +1,18 @@
 module LocalDExchangeSession;
 
-import Types;
+import Types: ETradeSide, Trade, PriceBookEntry, SecurityInfo, securityInfos;
 import DExchange : AbstractDExchange, LocalDExchange, AbstractDExchangeSession, BookManipulators;
 
 /**
 
-	'DExchangeSession' is the class local programs must instantiate in order to interact with a local exchange.
+	'LocalDExchangeSession' is the class local programs must instantiate in order to interact with a local exchange.
 
 */
 
 class LocalDExchangeSession: AbstractDExchangeSession {
 
-	this(LocalDExchange exchange, string party) {
-		super(exchange, party);
+	this(LocalDExchange exchange, uint securityId, string party) {
+		super(exchange, securityId, party);
 		exchange.registerSession(this);
 	}
 
@@ -26,22 +26,22 @@ class LocalDExchangeSession: AbstractDExchangeSession {
 
 	/** receives 'Addition' events, meaning that an order has been added to one of the books.
 	    The session adding the order will not receive the event. */
-	abstract void onAddition(string party, uint orderId, ETradeSide side, real limitFaceValue, uint quantity);
+	abstract void onAddition(uint securityId, string party, uint orderId, ETradeSide side, real limitFaceValue, uint quantity);
 
 	/** receives 'Cancencellation' events, meaning that an order has been cancelled on one of the books.
 	    If the cancellation was intentional, the session owning the order will not receive the event. */
-	abstract void onCancellation(string party, uint orderId, ETradeSide side, real limitFaceValue, uint quantity);
+	abstract void onCancellation(uint securityId, string party, uint orderId, ETradeSide side, real limitFaceValue, uint quantity);
 
 	/** receives 'Execution' events, denoting that an order you've sent has just been executed.
 	    The first to be notifyed will be the aggressed order's owner session, then the aggressor's.
 	    Sessions notified via 'onExecution' will not receive the corresponding 'onTrade' event. */
-	abstract void onExecution(uint tradeEventId, uint orderId, ref Trade trade, bool isBuying);
+	abstract void onExecution(uint securityId, uint tradeEventId, uint orderId, ref Trade trade, bool isAggressor);
 
 	/** receives 'Trade' events, denoting that two opposing orders matched each other and a trade has been made.
 	    First the 'onExecution' events will be issued for the parties involved on the trade, then the 'Trade'
 	    event will be broadcasted for all other sessions (Sessions involved on the trade will not receive this event
 	    for they already received the 'Execution' event). */
-	abstract void onTrade(uint tradeEventId, ref Trade trade, bool isAttackingBids);
+	abstract void onTrade(uint securityId, uint tradeEventId, ref Trade trade, bool isAttackingBids);
 
 	/** receives 'Book' events, denoting that one of the price ordered books for 'bids' and/or 'asks' have changed.
 	  * Book events are expensive to generate, therefore they are generated as less frequently as possible -- one for each of these cases:
@@ -52,7 +52,7 @@ class LocalDExchangeSession: AbstractDExchangeSession {
 	  * All existing price levels will be present on the 'bids' and 'asks' price books, regardless of their depth.
       *
 	  * bidsPriceBook | asksPriceBook := { [faceValue1] = PriceBookEntry1, ... } */
-	abstract void onBook(immutable PriceBookEntry[]* bidsPriceBook, immutable PriceBookEntry[]* asksPriceBook);
+	abstract void onBook(uint securityId, immutable PriceBookEntry[]* bidsPriceBook, immutable PriceBookEntry[]* asksPriceBook);
 
 }
 
@@ -72,30 +72,30 @@ version (unittest) {
 
 	class TestDExchangeSession: LocalDExchangeSession {
 
-		this(LocalDExchange exchange, string party) {
-			super(exchange, party);
+		this(LocalDExchange exchange, uint securityId, string party) {
+			super(exchange, securityId, party);
 		}
 
 		TestResults onExecutionResults;
-		override void onExecution(uint tradeEventId, uint orderId, ref Trade trade, bool isBuying) {
+		override void onExecution(uint securityId, uint tradeEventId, uint orderId, ref Trade trade, bool isBuying) {
 			onExecutionResults.total               += trade.qty*trade.price;
 			onExecutionResults.numberOfTransactions++;
 		}
 
 		TestResults onTradeResults;
-		override void onTrade(uint tradeEventId, ref Trade trade, bool isAttackingBids) {
+		override void onTrade(uint securityId, uint tradeEventId, ref Trade trade, bool isAttackingBids) {
 			onTradeResults.total               += trade.qty*trade.price;
 			onTradeResults.numberOfTransactions++;
 		}
 
 		uint onBookCount = 0;
-		override void onBook(immutable PriceBookEntry[]* bidsPriceBook, immutable PriceBookEntry[]* asksPriceBook) {
+		override void onBook(uint securityId, immutable PriceBookEntry[]* bidsPriceBook, immutable PriceBookEntry[]* asksPriceBook) {
 			onBookCount++;
 		}
 
 		TestResults onBuyAdditionResults;
 		TestResults onSellAdditionResults;
-		override void onAddition(string party, uint orderId, ETradeSide side, real limitFaceValue, uint quantity) {
+		override void onAddition(uint securityId, string party, uint orderId, ETradeSide side, real limitFaceValue, uint quantity) {
 			TestResults* results;
 			final switch (side) {
 				case ETradeSide.BUY:
@@ -111,7 +111,7 @@ version (unittest) {
 
 		TestResults onBuyCancellationResults;
 		TestResults onSellCancellationResults;
-		override void onCancellation(string party, uint orderId, ETradeSide side, real limitFaceValue, uint quantity) {
+		override void onCancellation(uint securityId, string party, uint orderId, ETradeSide side, real limitFaceValue, uint quantity) {
 			TestResults* results;
 			final switch (side) {
 				case ETradeSide.BUY:
@@ -143,9 +143,9 @@ unittest {
 	LocalDExchange exchange = new LocalDExchange();
 	uint orderId = 1;
 
-	auto john   = new TestDExchangeSession(exchange, "John");
-	auto mary   = new TestDExchangeSession(exchange, "Mary");
-	auto azelia = new TestDExchangeSession(exchange, "Azelia");
+	auto john   = new TestDExchangeSession(exchange, 0u, "John");
+	auto mary   = new TestDExchangeSession(exchange, 0u, "Mary");
+	auto azelia = new TestDExchangeSession(exchange, 0u, "Azelia");
 
 	TestResults expectedResults;
 	auto testUtils = new class TestUtils {
@@ -159,7 +159,7 @@ unittest {
 		}
 	};
 
-	BookManipulators bookManipulators = new BookManipulators(exchange);
+	BookManipulators bookManipulators = new BookManipulators(exchange, 0u);
 
 	testUtils.startTest("'LocalDExchange.d' & 'LocalDExchangeSession.d' tests");
 
@@ -280,11 +280,12 @@ unittest {
 
 
 	void gremling(uint startCents, uint endCents, ETradeSide side) {
+		static securityId = 0;
 		real expectedSumOfCents = ( (endCents-startCents+1) * ((endCents+startCents)/100.0) ) / 2.0;
 		testUtils.startSubTest("Gremling: "~side.to!string~"ing 1000 of all cents from "~format!"%,.2f"(startCents/100.0)~" to "~format!"%,.2f"(endCents/100.0)~"; then from "~format!"%,.2f"(endCents/100.0)~" to "~format!"%,.2f"(startCents/100.0));
 		// back
 		for (uint exchangeValue = endCents; exchangeValue >= startCents; exchangeValue--) {
-			real faceValue = exchange.info.exchangeValueToFaceValue(exchangeValue);
+			real faceValue = securityInfos[securityId].exchangeValueToFaceValue(exchangeValue);
 			bookManipulators.assureExecutability(side, faceValue, 1800);
 			bookManipulators.fillBook(faceValue, 8, 8, 15, 3700);
 			real oldOnTradeResults = azelia.onTradeResults.total;
@@ -294,7 +295,7 @@ unittest {
 		azelia.reset();
 		// forth
 		for (uint exchangeValue = startCents; exchangeValue <= endCents; exchangeValue++) {
-			real faceValue = exchange.info.exchangeValueToFaceValue(exchangeValue);
+			real faceValue = securityInfos[securityId].exchangeValueToFaceValue(exchangeValue);
 			bookManipulators.assureExecutability(side, faceValue, 1800);
 			bookManipulators.fillBook(faceValue, 8, 8, 15, 3700);
 			real oldOnTradeResults = azelia.onTradeResults.total;
