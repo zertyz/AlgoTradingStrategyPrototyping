@@ -74,6 +74,41 @@ Since we use a real Exchange to prototype new strategies, a source of Market Dat
   
 Important note: This project does not count with a `MicroMarketOrderOptimization` layer, designed to improve the execution even further by taking measures to benefit / not be prejudicted by certain order addition/deletion/edition and specific book patterns -- only [OgreRobot.com](https://OgreRobot.com/) has that. Nonetheless, this should not affect your algorithms prototyped here, since no `trading_strategy` in this project will be using any `MicroMarketOptimization`.
 
+## The Infrastructure available to strategies
+
+Strategy logic classes may assign to receive the following standard events:
+  1. Order Events:
+     * Order Acception / Rejection
+     * Order Execution and Cancelation Reports
+  2. Market Data, for any security:
+     * Trading Status*
+     * Trades
+     * Book, by prices
+     * Book, by orders
+     * Booked Order Events (addition, cancelation)
+
+  \* **Trading Status** is marked with * to exemplify that the information is both available as an event and as a queriable Indicator. **Indicators** are continuously running, receiving events and contabilizing them for efficient queries. They are:
+
+  1. **MarketDataIndicators** -- the indicators here are continuously running and contabilizing standard Market Data events for all securities:
+     1. **TradingStatusIndicator** -- keeps track of the trading status (onAuction, Suspended, Trading, ...) for every security. Some queries:
+        * getLastAuctionsPeriods(n)
+        * getAverageAuctionDuration(nDays|nAuctions)
+     2. **TradesIndicator** -- Keeps track of every trade of every security. Some available operations:
+        * getVWAP(averagePeriod, slot)
+        * getNumberOfTrades | getTradesLog (start, end periods)
+        * getLastTradesLog(time | number of trades)
+        * ... get bid/ask attacks, etc.
+     3. **OrdersIndicator** -- Keeps track of every order (booked or immediately executed) for every security:
+        * getCancellationRatio(period | number of orders)
+        * getAggressiveOverBookedRatio(period)
+        * ... IOCOverGTC, etc...
+  2. **LocalExecutionStrategiesKPIs** -- 
+  3. **LocalRobotsKPIs** -- 
+
+  1. MarketDataIndicators
+  2. LocalExecutionStrategiesKPIs
+  3. LocalRobotsKPIs
+
 ## The development process
 
 One might find the following scripts useful to develop their algo trading strategies using this tool, since they benefit from one of the D compiler's most notable feature: its speed.
