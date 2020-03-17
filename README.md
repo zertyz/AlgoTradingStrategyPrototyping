@@ -128,7 +128,7 @@ With these scripts, just save your code and watch, in less than 1 second, the co
 ### for DExchange development with auto build & testing, use:
 
 ```
-d="DExchange"; FLAGS="-release -O -mcpu=native -m64 -inline -boundscheck=off"; _FLAGS="-boundscheck=on -check=on"; while sleep 1; do for f in *.d; do if [ "$f" -nt "$d" ]; then echo -en "`date`: COMPILING..."; dmd $FLAGS -lowmem -of="$d" AbstractDExchange.d AbstractDExchangeSession.d DExchange.d LocalDExchange.d LocalDExchangeSession.d TestUtils.d Types.d BookManipulators.d AlgoTradingStrategyPrototyping.d && echo -en "\n`date`: TESTING:  `ls -l "$d" | sed 's|.* \([0-9][0-9][0-9][0-9]*.*\)|\1|'`\n" && ./"$d" || echo -en '\n\n\n\n\n\n'; touch "$d"; rm -f "$d".obj; fi; done; done
+d="DExchange"; FLAGS="-release -O -mcpu=native -m64 -inline -boundscheck=off"; _FLAGS="-boundscheck=on -check=on"; while sleep 1; do for f in *.d; do if [ "$f" -nt "$d" ]; then echo -en "`date`: COMPILING..."; dmd $FLAGS -lowmem -unittest -main -of="$d" AbstractDExchange.d AbstractDExchangeSession.d DExchange.d LocalDExchange.d LocalDExchangeSession.d TestUtils.d Types.d BookManipulators.d && echo -en "\n`date`: TESTING:  `ls -l "$d" | sed 's|.* \([0-9][0-9][0-9][0-9]*.*\)|\1|'`\n" && ./"$d" || echo -en '\n\n\n\n\n\n'; touch "$d"; rm -f "$d".obj; fi; done; done
 ```
 
 ### for AlgoTradingStrategyPrototyping development with auto building:
