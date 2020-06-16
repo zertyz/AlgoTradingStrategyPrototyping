@@ -85,7 +85,7 @@ abstract class AbstractDExchange {
 		Order[] emptyOrderArray;
 		Order[] complexOrderArray = [Order(0, ETradeSide.BUY, 0, 100),
 		                             Order(0, ETradeSide.BUY, 0, 300),
-		Order(0, ETradeSide.BUY, 0, 500)];
+		                             Order(0, ETradeSide.BUY, 0, 500)];
 
 		testUtils.startSubTest("Empty price level");
 		expected = MatchAnalysis(0, 0, 0);
